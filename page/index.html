@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>会话清扫器 · Ungrouped Sweeper</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.6 system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; margin: 0 auto; padding: 16px; max-width: 860px; }
+  h1 { font-size: 18px; margin: 8px 0 4px; }
+  p.hint { color: gray; margin: 0 0 16px; }
+  section { margin: 18px 0; }
+  h2 { font-size: 15px; margin: 0 0 8px; }
+  .row { display: flex; align-items: baseline; gap: 8px; padding: 5px 8px; border-radius: 8px; }
+  .row:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
+  .row label { flex: 1; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { color: gray; font-size: 12px; white-space: nowrap; }
+  .actions { position: sticky; bottom: 0; padding: 10px 0; background: inherit; display: flex; gap: 8px; }
+  button { cursor: pointer; border-radius: 8px; border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+           padding: 6px 14px; background: transparent; color: inherit; }
+  button.danger { border-color: color-mix(in srgb, #e5484d 60%, transparent); color: #e5484d; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .msg { margin-top: 8px; color: gray; white-space: pre-wrap; }
+  .count { color: gray; font-weight: normal; }
+  details summary { cursor: pointer; color: gray; }
+</style>
+</head>
+<body>
+<h1>会话清扫器 <span class="count" id="summary"></span></h1>
+<p class="hint">删除 = 归档：对话从列表消失，但日志保留在磁盘上，随时可从「已归档」恢复。</p>
+<div id="app"></div>
+<div class="actions">
+  <button id="delete-selected" class="danger">删除所选（归档）</button>
+  <button id="sweep-ungrouped" class="danger">清空未分组</button>
+  <button id="reload">刷新</button>
+</div>
+<div class="msg" id="msg"></div>
+<script type="module">
+const app = document.getElementById('app');
+const msg = document.getElementById('msg');
+const summary = document.getElementById('summary');
+let state = null;
+
+async function api(path, init) {
+  const response = await fetch(path, init);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error ?? ('HTTP ' + response.status));
+  return body;
+}
+
+function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function rowHtml(s, checkable) {
+  const when = new Date(s.createdAt).toLocaleString('zh-CN', { hour12: false });
+  const label = s.title ?? '(无用户消息)';
+  const meta = [when, s.workspaceTitle ?? null, s.sizeBytes != null ? (s.sizeBytes >> 10) + 'KB' : null]
+    .filter(Boolean).join(' · ');
+  const box = checkable ? '<input type="checkbox" data-id="' + escapeHtml(s.id) + '">' : '<span style="color:gray">•</span>';
+  return '<div class="row">' + box +
+    '<label title="' + escapeHtml(s.id) + '">' + escapeHtml(label) + '</label>' +
+    '<span class="meta">' + escapeHtml(meta) + '</span></div>';
+}
+
+function checkedIds() {
+  return [...app.querySelectorAll('input[type=checkbox]:checked')].map((el) => el.dataset.id);
+}
+
+function render() {
+  const { sessions, workspaces } = state;
+  const live = sessions.filter((s) => !s.archived && !s.subagent);
+  const groupedIds = new Set(workspaces.flatMap((w) => w.sessionIds));
+  const ungrouped = live.filter((s) => !groupedIds.has(s.id));
+  const byWorkspace = workspaces.map((w) => ({
+    ...w,
+    sessions: live.filter((s) => s.workspaceId === w.workspaceId),
+  })).filter((w) => w.sessions.length > 0);
+  const archived = sessions.filter((s) => s.archived);
+  summary.textContent = '(' + live.length + ' 条在列 / ' + ungrouped.length + ' 未分组 / ' + archived.length + ' 已归档)';
+
+  app.innerHTML = '';
+  const section = (title, rows, checkable, note) => {
+    if (rows.length === 0) return;
+    const el = document.createElement('section');
+    el.innerHTML = '<h2>' + title + ' <span class="count">' + rows.length + '</span></h2>' +
+      rows.map((r) => rowHtml(r, checkable)).join('') +
+      (note ? '<details><summary>' + note + '</summary>' +
+        rows.map((r) => '<div class="meta" style="padding:2px 8px">' + escapeHtml(r.id) + '</div>').join('') + '</details>' : '');
+    app.appendChild(el);
+  };
+  section('未分组', ungrouped, true, '会话 ID');
+  for (const w of byWorkspace) section('分组：' + escapeHtml(w.title), w.sessions, true, null);
+  section('已归档（可恢复）', archived, false, null);
+}
+
+async function reload() {
+  msg.textContent = '加载中…';
+  state = await api('/ungrouped-sweeper/api/v1/list');
+  msg.textContent = '';
+  render();
+}
+
+async function archive(ids) {
+  if (ids.length === 0) { msg.textContent = '未勾选任何对话。'; return; }
+  msg.textContent = '归档中…（运行中的对话会先停止其任务）';
+  for (const button of document.querySelectorAll('button')) button.disabled = true;
+  try {
+    const result = await api('/ungrouped-sweeper/api/v1/delete', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionIds: ids }),
+    });
+    msg.textContent = '已归档 ' + result.archived.length + ' 条' +
+      (result.failed.length ? '；失败 ' + result.failed.length + ' 条：' +
+        result.failed.map((f) => f.id + ' → ' + f.error).join('；') : '');
+  } catch (error) {
+    msg.textContent = '失败：' + error.message;
+  } finally {
+    for (const button of document.querySelectorAll('button')) button.disabled = false;
+    await reload();
+  }
+}
+
+document.getElementById('delete-selected').addEventListener('click', () => archive(checkedIds()));
+document.getElementById('sweep-ungrouped').addEventListener('click', async () => {
+  const live = state.sessions.filter((s) => !s.archived && !s.subagent);
+  const grouped = new Set(state.workspaces.flatMap((w) => w.sessionIds));
+  await archive(live.filter((s) => !grouped.has(s.id)).map((s) => s.id));
+});
+document.getElementById('reload').addEventListener('click', reload);
+
+reload().catch((error) => { msg.textContent = '加载失败：' + error.message; });
+</script>
+</body>
+</html>

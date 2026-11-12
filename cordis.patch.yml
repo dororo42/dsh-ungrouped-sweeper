@@ -1,0 +1,4 @@
+# dsh bundle patch: insert the ungrouped sweeper into the profile's layer stack.
+- insert:
+    - id: ungrouped-sweeper
+      name: dsh-ungrouped-sweeper
