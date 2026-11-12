@@ -32,11 +32,14 @@ Subagent sessions (fork lineage, `origin: subagent`) are never listed and never 
 
 ## What "delete" means here
 
-Deleting a conversation through this plugin **archives** it via `WorkspaceRegistry.archiveSession(sessionId, { stopActivity: true })` — the same durable write the product's own grouping surface performs. Consequences:
+Two stages, so an accident always has one step to undo:
 
-- the conversation disappears from every grouping surface immediately;
-- running turns, subagents, background jobs and schedules are stopped instead of blocking the archive;
-- the session log on disk is untouched, so everything is recoverable (restore from the page's 已归档 section, from the web UI's archived list, or `POST /ungrouped-sweeper/api/v1/restore`).
+1. **删除所选 / 清空未分组 → archive** (reversible). Sessions are archived via `WorkspaceRegistry.archiveSession(sessionId, { stopActivity: true })` — the same durable write the product's own grouping surface performs. Consequences:
+   - the conversation disappears from every grouping surface immediately;
+   - running turns, subagents, background jobs and schedules are stopped instead of blocking the archive;
+   - the session log on disk is untouched, so everything is recoverable (restore from the page's 已归档 section, from the web UI's archived list, or `POST /ungrouped-sweeper/api/v1/restore`).
+
+2. **彻底删除所选 → purge** (irreversible, archived sessions only). Physically removes the session's log directory under `~/.dsh/sessions/` and its projection-cache row, and drops the id from the archive set. The API refuses ids that are not archived, so the archive stays a mandatory buffer before bytes are destroyed.
 
 ## API
 
@@ -44,10 +47,11 @@ All routes are served by the web profile's `webServer` and re-checked against th
 
 | Route | Method | Description |
 | --- | --- | --- |
-| `/ungrouped-sweeper` | GET | The standalone page. |
+| `/ungrouped-sweeper` | GET | The standalone page. A 🧹 launcher beside the sidebar's Settings row (client half) opens it in one click — no token typing needed. |
 | `/ungrouped-sweeper/api/v1/list` | GET | `{ workspaces, sessions }` — sessions carry `id`, `title` (official dsh-session-title value, falling back to the first user text), `createdAt`, `sizeBytes`, `workspaceId`, `archived`, `pinned`, `subagent`. |
 | `/ungrouped-sweeper/api/v1/delete` | POST | `{ sessionIds: [...] }` or `{ scope: "ungrouped" }`; archives each with `stopActivity: true`, returns `{ archived, failed }`. |
 | `/ungrouped-sweeper/api/v1/restore` | POST | `{ sessionIds: [...] }`; unarchives, returns `{ restored, failed }`. |
+| `/ungrouped-sweeper/api/v1/purge` | POST | `{ sessionIds: [...] }`; **archived sessions only** — unarchives, deletes the log directory and projection cache, returns `{ purged, skipped, failed }`. |
 
 ## Related plugins
 

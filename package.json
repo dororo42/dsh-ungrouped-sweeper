@@ -1,9 +1,13 @@
 {
   "name": "dsh-ungrouped-sweeper",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Sweep the dsh web conversation list: a standalone page lists stored sessions by workspace, batch-archives the ungrouped test ones through the official workspace registry (stops running work first), and restores them anytime. 会话清扫器：按分组列出对话，一键归档未分组的测试对话（走官方注册表、先停运行任务），随时恢复。",
   "type": "module",
   "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -21,6 +25,9 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
     }
   }
 }
