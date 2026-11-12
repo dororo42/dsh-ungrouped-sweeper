@@ -39,7 +39,7 @@ Two stages, so an accident always has one step to undo:
    - running turns, subagents, background jobs and schedules are stopped instead of blocking the archive;
    - the session log on disk is untouched, so everything is recoverable (restore from the page's 已归档 section, from the web UI's archived list, or `POST /ungrouped-sweeper/api/v1/restore`).
 
-2. **彻底删除所选 → purge** (irreversible, archived sessions only). Physically removes the session's log directory under `~/.dsh/sessions/` and its projection-cache row, and drops the id from the archive set. The API refuses ids that are not archived, so the archive stays a mandatory buffer before bytes are destroyed.
+2. **彻底删除所选 → purge** (irreversible, archived sessions only). Physically removes the session's log directory under `~/.dsh/sessions/` and its projection-cache row, drops the id from the archive set **and from every workspace's accounting slot** (archiving keeps that slot by design for unarchive-restore; without detaching, the native UI keeps displaying a session whose bytes are gone). Ghost rows — ids the registry still accounts but session persistence holds no bytes for — are listed separately on the page under 幽灵记录 and can be purged to reconcile the accounting. The API refuses purging a stored, unarchived session.
 
 ## API
 
@@ -51,7 +51,7 @@ All routes are served by the web profile's `webServer` and re-checked against th
 | `/ungrouped-sweeper/api/v1/list` | GET | `{ workspaces, sessions }` — sessions carry `id`, `title` (official dsh-session-title value, falling back to the first user text), `createdAt`, `sizeBytes`, `workspaceId`, `archived`, `pinned`, `subagent`. |
 | `/ungrouped-sweeper/api/v1/delete` | POST | `{ sessionIds: [...] }` or `{ scope: "ungrouped" }`; archives each with `stopActivity: true`, returns `{ archived, failed }`. |
 | `/ungrouped-sweeper/api/v1/restore` | POST | `{ sessionIds: [...] }`; unarchives, returns `{ restored, failed }`. |
-| `/ungrouped-sweeper/api/v1/purge` | POST | `{ sessionIds: [...] }`; **archived sessions only** — unarchives, deletes the log directory and projection cache, returns `{ purged, skipped, failed }`. |
+| `/ungrouped-sweeper/api/v1/purge` | POST | `{ sessionIds: [...] }`; archived sessions and ghost rows (registry-accounted ids with no bytes on disk) — unarchives, detaches workspace accounting, deletes the log directory and projection cache, returns `{ purged, skipped, failed }`. |
 
 ## Related plugins
 

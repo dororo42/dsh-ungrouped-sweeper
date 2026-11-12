@@ -53,12 +53,13 @@ async function api(path, init) {
 function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
 function rowHtml(s, checkable) {
-  const when = new Date(s.createdAt).toLocaleString('zh-CN', { hour12: false });
-  const label = s.title ?? '(无用户消息)';
-  const meta = [when, s.workspaceTitle ?? null, s.sizeBytes != null ? (s.sizeBytes >> 10) + 'KB' : null]
+  const when = s.createdAt ? new Date(s.createdAt).toLocaleString('zh-CN', { hour12: false }) : '—';
+  const label = s.ghost ? '(已彻底删除，等待注册表清理)' : (s.title ?? '(无用户消息)');
+  const meta = [when, s.workspaceTitle ?? null, s.sizeBytes != null ? (s.sizeBytes >> 10) + 'KB' : null, s.ghost ? '幽灵记录' : null]
     .filter(Boolean).join(' · ');
   const box = checkable ? '<input type="checkbox" data-id="' + escapeHtml(s.id) + '">' : '<span style="color:gray">•</span>';
-  return '<div class="row">' + box +
+  const style = s.ghost ? ' style="opacity:.55"' : '';
+  return '<div class="row"' + style + '>' + box +
     '<label title="' + escapeHtml(s.id) + '">' + escapeHtml(label) + '</label>' +
     '<span class="meta">' + escapeHtml(meta) + '</span></div>';
 }
@@ -75,15 +76,18 @@ function checkedScoped(archived) {
 
 function render() {
   const { sessions, workspaces } = state;
-  const live = sessions.filter((s) => !s.archived && !s.subagent);
+  const live = sessions.filter((s) => !s.archived && !s.subagent && !s.ghost);
+  const ghosts = sessions.filter((s) => s.ghost);
   const groupedIds = new Set(workspaces.flatMap((w) => w.sessionIds));
   const ungrouped = live.filter((s) => !groupedIds.has(s.id));
   const byWorkspace = workspaces.map((w) => ({
     ...w,
     sessions: live.filter((s) => s.workspaceId === w.workspaceId),
   })).filter((w) => w.sessions.length > 0);
-  const archived = sessions.filter((s) => s.archived);
-  summary.textContent = '(' + live.length + ' 条在列 / ' + ungrouped.length + ' 未分组 / ' + archived.length + ' 已归档)';
+  const archived = sessions.filter((s) => s.archived && !s.ghost);
+  const ghostArchived = ghosts.filter((s) => s.archived);
+  const ghostUnarchived = ghosts.filter((s) => !s.archived);
+  summary.textContent = '(' + live.length + ' 条在列 / ' + ungrouped.length + ' 未分组 / ' + archived.length + ' 已归档 / ' + ghosts.length + ' 幽灵记录)';
 
   app.innerHTML = '';
   const section = (title, rows, checkable, note) => {
@@ -98,6 +102,8 @@ function render() {
   section('未分组', ungrouped, true, '会话 ID');
   for (const w of byWorkspace) section('分组：' + escapeHtml(w.title), w.sessions, true, null);
   section('已归档（可恢复）', archived, true, null);
+  section('幽灵记录（注册表残留，勾选后点「彻底删除所选」清理）', ghostUnarchived, true, null);
+  section('幽灵记录 · 已归档（勾选后点「彻底删除所选」清理）', ghostArchived, true, null);
 }
 
 async function reload() {
@@ -152,9 +158,12 @@ async function restore(ids) {
 document.getElementById('delete-selected').addEventListener('click', () => archive(checkedScoped(false)));
 document.getElementById('restore-selected').addEventListener('click', () => restore(checkedScoped(true)));
 document.getElementById('purge-selected').addEventListener('click', async () => {
-  const ids = checkedScoped(true);
-  if (ids.length === 0) { msg.textContent = '请先在「已归档」区勾选要彻底删除的对话。'; return; }
-  const ok = confirm('彻底删除 ' + ids.length + ' 条已归档对话？\n\n日志文件将从磁盘物理删除，无法恢复。\n（只允许删已归档的对话）');
+  const ids = [...new Set([...checkedScoped(true), ...checkedScoped(false).filter((id) => {
+    const s = state.sessions.find((x) => x.id === id);
+    return s?.ghost;
+  })])];
+  if (ids.length === 0) { msg.textContent = '请先在「已归档」或「幽灵记录」区勾选要彻底删除的条目。'; return; }
+  const ok = confirm('彻底删除 ' + ids.length + ' 条？\n\n已归档对话的日志将从磁盘物理删除，无法恢复；幽灵记录仅清理注册表残留（磁盘已无内容）。');
   if (!ok) return;
   msg.textContent = '彻底删除中…';
   for (const button of document.querySelectorAll('button')) button.disabled = true;
