@@ -26,7 +26,7 @@ The page shows three sections:
 
 - **未分组** — stored sessions that belong to no workspace; the pile this plugin exists to clear. Checkbox each, or use 清空未分组 for all of them at once.
 - **分组：\<name\>** — sessions already filed into a workspace.
-- **已归档（可恢复）** — previously swept sessions.
+- **已归档（可恢复）** — previously swept sessions; tick some and click 恢复所选 to bring them back.
 
 Subagent sessions (fork lineage, `origin: subagent`) are never listed and never touched.
 

@@ -27,11 +27,12 @@
 </head>
 <body>
 <h1>会话清扫器 <span class="count" id="summary"></span></h1>
-<p class="hint">删除 = 归档：对话从列表消失，但日志保留在磁盘上，随时可从「已归档」恢复。</p>
+<p class="hint">删除 = 归档：对话从列表消失，但日志保留在磁盘上；在「已归档」区勾选后点「恢复所选」即可还原。</p>
 <div id="app"></div>
 <div class="actions">
   <button id="delete-selected" class="danger">删除所选（归档）</button>
   <button id="sweep-ungrouped" class="danger">清空未分组</button>
+  <button id="restore-selected">恢复所选</button>
   <button id="reload">刷新</button>
 </div>
 <div class="msg" id="msg"></div>
@@ -65,6 +66,12 @@ function checkedIds() {
   return [...app.querySelectorAll('input[type=checkbox]:checked')].map((el) => el.dataset.id);
 }
 
+/** Checked ids restricted to live (not yet archived) or archived rows. */
+function checkedScoped(archived) {
+  const byId = new Map(state.sessions.map((s) => [s.id, s]));
+  return checkedIds().filter((id) => byId.get(id)?.archived === archived);
+}
+
 function render() {
   const { sessions, workspaces } = state;
   const live = sessions.filter((s) => !s.archived && !s.subagent);
@@ -89,7 +96,7 @@ function render() {
   };
   section('未分组', ungrouped, true, '会话 ID');
   for (const w of byWorkspace) section('分组：' + escapeHtml(w.title), w.sessions, true, null);
-  section('已归档（可恢复）', archived, false, null);
+  section('已归档（可恢复）', archived, true, null);
 }
 
 async function reload() {
@@ -120,7 +127,29 @@ async function archive(ids) {
   }
 }
 
-document.getElementById('delete-selected').addEventListener('click', () => archive(checkedIds()));
+async function restore(ids) {
+  if (ids.length === 0) { msg.textContent = '未勾选任何已归档对话。'; return; }
+  msg.textContent = '恢复中…';
+  for (const button of document.querySelectorAll('button')) button.disabled = true;
+  try {
+    const result = await api('/ungrouped-sweeper/api/v1/restore', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionIds: ids }),
+    });
+    msg.textContent = '已恢复 ' + result.restored.length + ' 条' +
+      (result.failed.length ? '；失败 ' + result.failed.length + ' 条：' +
+        result.failed.map((f) => f.id + ' → ' + f.error).join('；') : '');
+  } catch (error) {
+    msg.textContent = '失败：' + error.message;
+  } finally {
+    for (const button of document.querySelectorAll('button')) button.disabled = false;
+    await reload();
+  }
+}
+
+document.getElementById('delete-selected').addEventListener('click', () => archive(checkedScoped(false)));
+document.getElementById('restore-selected').addEventListener('click', () => restore(checkedScoped(true)));
 document.getElementById('sweep-ungrouped').addEventListener('click', async () => {
   const live = state.sessions.filter((s) => !s.archived && !s.subagent);
   const grouped = new Set(state.workspaces.flatMap((w) => w.sessionIds));
