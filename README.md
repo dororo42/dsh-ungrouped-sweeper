@@ -45,7 +45,7 @@ All routes are served by the web profile's `webServer` and re-checked against th
 | Route | Method | Description |
 | --- | --- | --- |
 | `/ungrouped-sweeper` | GET | The standalone page. |
-| `/ungrouped-sweeper/api/v1/list` | GET | `{ workspaces, sessions }` — sessions carry `id`, `title` (first user text), `createdAt`, `sizeBytes`, `workspaceId`, `archived`, `pinned`, `subagent`. |
+| `/ungrouped-sweeper/api/v1/list` | GET | `{ workspaces, sessions }` — sessions carry `id`, `title` (official dsh-session-title value, falling back to the first user text), `createdAt`, `sizeBytes`, `workspaceId`, `archived`, `pinned`, `subagent`. |
 | `/ungrouped-sweeper/api/v1/delete` | POST | `{ sessionIds: [...] }` or `{ scope: "ungrouped" }`; archives each with `stopActivity: true`, returns `{ archived, failed }`. |
 | `/ungrouped-sweeper/api/v1/restore` | POST | `{ sessionIds: [...] }`; unarchives, returns `{ restored, failed }`. |
 
